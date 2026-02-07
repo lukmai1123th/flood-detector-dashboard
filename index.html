@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bangkok Flood Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+body{margin:0;padding:0;font-family:Arial,sans-serif;background:#f0f2f5;}
+h1{text-align:center;margin:20px;color:#333;}
+#mainMap{height:500px;width:90%;margin:20px auto;border-radius:15px;border:1px solid #ccc;}
+.cardsContainer{display:flex;flex-wrap:wrap;justify-content:center;gap:15px;margin-bottom:40px;}
+.card{width:220px;padding:15px;border-radius:15px;box-shadow:0 4px 15px rgba(0,0,0,0.2);background:white;cursor:pointer;transition:0.3s;font-weight:bold;}
+.card:hover{transform:translateY(-5px);}
+.cardStatus{padding:10px;border-radius:12px;color:white;font-weight:bold;text-align:center;margin-bottom:8px;font-size:16px;}
+.cityName{font-size:14px;margin-bottom:10px;text-align:center;color:#222;}
+.dataBlock{padding:10px;border-radius:10px;margin-bottom:6px;background:white;font-size:14px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,0.1);}
+.dataBlock span.lang{display:block;font-size:11px;color:#555;margin-top:2px;}
+.dataBlock span.emoji{font-size:18px;margin-bottom:3px;display:block;}
+.status-box{position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.7);color:white;padding:10px;border-radius:8px;font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="status-box">Time: <span id="currentTime"></span></div>
+<h1>🌊 Bangkok Flood Dashboard</h1>
+
+<div id="mainMap"></div>
+<div class="cardsContainer" id="cardsContainer"></div>
+
+<script>
+// Nodes with city names
+const nodes=[
+  {id:"LatKrabang-Real",city:"Lat Krabang",city_th:"ลาดกระบัง",city_jp:"ラートクラバン",lat:13.7283,lon:100.7794,type:"real",clickable:true},
+  {id:"BangNa-Sim",city:"Bang Na",city_th:"บางนา",city_jp:"バーンナー",lat:13.6731,lon:100.6017,type:"simulation",clickable:true},
+  {id:"DonMueang-Sim",city:"Don Mueang",city_th:"ดอนเมือง",city_jp:"ドンムアン",lat:13.9105,lon:100.6060,type:"simulation",clickable:true},
+  {id:"PathumWan-Error",city:"Pathum Wan",city_th:"ปทุมวัน",city_jp:"パトゥムワン",lat:13.7461,lon:100.5348,type:"simulation",clickable:false,error:true},
+  {id:"BangRak-Sim",city:"Bang Rak",city_th:"บางรัก",city_jp:"バーンラック",lat:13.7232,lon:100.5329,type:"simulation",clickable:false},
+  {id:"Chatuchak-Sim",city:"Chatuchak",city_th:"จตุจักร",city_jp:"チャトゥチャック",lat:13.8137,lon:100.5650,type:"simulation",clickable:false}
+];
+
+// Status helpers
+function getColor(status){
+  switch(status){
+    case "ERROR": return "#d3d3d3";
+    case "FLASH FLOOD": return "red";
+    case "FLOOD": return "orange";
+    case "WARNING": return "yellow";
+    case "WAITING": return "blue";
+    default: return "green";
+  }
+}
+
+function getEmoji(status){
+  switch(status){
+    case "ERROR": return "😞";
+    case "FLASH FLOOD": return "🔴";
+    case "FLOOD": return "🌊";
+    case "WARNING": return "⚠️";
+    case "WAITING": return "⏳";
+    default: return "✅";
+  }
+}
+
+function generateNodeStatus(node){
+  if(node.type==="real") return {...node,status:"WAITING",water_level:0,rain:0,humidity:0,vibration:0,time:new Date().toLocaleTimeString()};
+  else if(node.error) return {...node,status:"ERROR",water_level:0,rain:0,humidity:0,vibration:0,time:new Date().toLocaleTimeString()};
+  else {
+    const statusChance=Math.random();
+    let status;
+    if(statusChance<0.5) status="NORMAL";
+    else if(statusChance<0.75) status="WARNING";
+    else if(statusChance<0.9) status="FLOOD";
+    else status="FLASH FLOOD";
+    return {...node,status,
+            water_level:Math.floor(Math.random()*100),
+            rain:Math.floor(Math.random()*100),
+            humidity:60+Math.floor(Math.random()*40),
+            vibration:Math.random()>0.7?1:0,
+            time:new Date().toLocaleTimeString()};
+  }
+}
+
+// Map
+const map=L.map('mainMap').setView([13.7563,100.5018],11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap'}).addTo(map);
+
+const markers={};
+nodes.forEach(node=>{
+  const marker=L.circleMarker([node.lat,node.lon],{radius:12,color:"green",fillColor:"green",fillOpacity:0.8}).addTo(map);
+  marker.bindPopup(node.city + " / " + node.city_th + " / " + node.city_jp);
+  if(node.clickable) marker.on('click',()=>{window.location.href=`machine.html?id=${node.id}`});
+  markers[node.id]=marker;
+});
+
+// Cards
+const cardsContainer=document.getElementById("cardsContainer");
+nodes.forEach(node=>{
+  const card=document.createElement("div");
+  card.className="card";
+  card.id=node.id;
+  card.onclick=()=>{if(node.clickable) window.location.href=`machine.html?id=${node.id}`};
+  
+  card.innerHTML=`
+    <div class="cardStatus" id="${node.id}-status">Status: -</div>
+    <div class="cityName">${node.city} / ${node.city_th} / ${node.city_jp}</div>
+    <div class="dataBlock" id="${node.id}-water"><span class="emoji">💧</span>Water Level: -<span class="lang">ระดับน้ำ: - / 水位: -</span></div>
+    <div class="dataBlock" id="${node.id}-rain"><span class="emoji">🌧️</span>Rain: -<span class="lang">ฝน: - / 雨: -</span></div>
+    <div class="dataBlock" id="${node.id}-humidity"><span class="emoji">💦</span>Humidity: -<span class="lang">ความชื้น: - / 湿度: -</span></div>
+    <div class="dataBlock" id="${node.id}-vibration"><span class="emoji">📳</span>Vibration: -<span class="lang">สั่น: - / 振動: -</span></div>
+  `;
+  cardsContainer.appendChild(card);
+});
+
+// Update
+function updateNodes(){
+  nodes.forEach(node=>{
+    const data=generateNodeStatus(node);
+    const color=getColor(data.status);
+    const emoji=getEmoji(data.status);
+
+    // Map marker
+    const marker=markers[node.id];
+    marker.setStyle({color:color,fillColor:color});
+    marker.bindPopup(`${node.city} / ${node.city_th} / ${node.city_jp}<br>Status: ${data.status} ${emoji}`);
+
+    // Card update
+    document.getElementById(`${node.id}-status`).innerText=`Status: ${data.status} ${emoji}`;
+    document.getElementById(`${node.id}-status`).style.background=color;
+
+    document.getElementById(`${node.id}-water`).innerHTML=`<span class="emoji">💧</span>Water Level: ${data.water_level}<span class="lang">ระดับน้ำ: ${data.water_level} / 水位: ${data.water_level}</span>`;
+    document.getElementById(`${node.id}-rain`).innerHTML=`<span class="emoji">🌧️</span>Rain: ${data.rain}<span class="lang">ฝน: ${data.rain} / 雨: ${data.rain}</span>`;
+    document.getElementById(`${node.id}-humidity`).innerHTML=`<span class="emoji">💦</span>Humidity: ${data.humidity}<span class="lang">ความชื้น: ${data.humidity} / 湿度: ${data.humidity}</span>`;
+    document.getElementById(`${node.id}-vibration`).innerHTML=`<span class="emoji">📳</span>Vibration: ${data.vibration}<span class="lang">สั่น: ${data.vibration} / 振動: ${data.vibration}</span>`;
+  });
+  document.getElementById("currentTime").innerText=new Date().toLocaleTimeString();
+}
+
+setInterval(updateNodes,2000);
+</script>
+</body>
+</html>

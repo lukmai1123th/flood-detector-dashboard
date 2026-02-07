@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Machine Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body{margin:0;padding:0;font-family:Arial,sans-serif;background:#f0f2f5;}
+h1{text-align:center;margin:20px;color:#333;}
+.container{display:flex;flex-wrap:wrap;justify-content:center;gap:20px;margin:20px;}
+#bigMap{flex:1 1 600px;height:450px;border-radius:15px;border:1px solid #ccc;}
+.infoPanel{flex:1 1 400px;display:flex;flex-direction:column;gap:15px;}
+
+.statusCard{padding:20px;border-radius:15px;box-shadow:0 6px 20px rgba(0,0,0,0.2);font-weight:bold;text-align:center;color:white;font-size:18px;transition:0.3s;}
+
+.dataBlock{padding:15px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.15);background:white;font-size:16px;text-align:center;position:relative;}
+.dataBlock span.lang{display:block;font-size:12px;color:#555;margin-top:3px;}
+.dataBlock span.emoji{font-size:22px;margin-bottom:5px;display:block;}
+
+.chartCard{padding:15px;border-radius:15px;box-shadow:0 4px 15px rgba(0,0,0,0.15);background:white;}
+
+.status-box{position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.7);color:white;padding:10px;border-radius:8px;font-size:14px;}
+</style>
+</head>
+<body>
+
+<div class="status-box">Time: <span id="currentTime"></span></div>
+<h1 id="machineTitle">Machine Dashboard</h1>
+
+<div class="container">
+  <div id="bigMap"></div>
+  <div class="infoPanel">
+    <div class="statusCard" id="statusCard">Status: -</div>
+
+    <div class="dataBlock" id="waterBlock">
+      <span class="emoji">💧</span>
+      Water Level: - cm
+      <span class="lang">ระดับน้ำ: - / 水位: -</span>
+    </div>
+
+    <div class="dataBlock" id="rainBlock">
+      <span class="emoji">🌧️</span>
+      Rain: - %
+      <span class="lang">ฝน: - / 雨: -</span>
+    </div>
+
+    <div class="dataBlock" id="humidityBlock">
+      <span class="emoji">💦</span>
+      Humidity: - %
+      <span class="lang">ความชื้น: - / 湿度: -</span>
+    </div>
+
+    <div class="dataBlock" id="vibrationBlock">
+      <span class="emoji">📳</span>
+      Vibration: -
+      <span class="lang">สั่น: - / 振動: -</span>
+    </div>
+
+    <div class="chartCard">
+      <canvas id="trendChart" height="200"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// รับ ID เครื่องจาก URL
+const urlParams=new URLSearchParams(window.location.search);
+const machineId=urlParams.get("id")||"LatKrabang-Real";
+document.getElementById("machineTitle").innerText=`${machineId} Dashboard`;
+
+// Node List
+const nodes=[
+  {id:"LatKrabang-Real",lat:13.7283,lon:100.7794,type:"real",clickable:true},
+  {id:"BangNa-Sim",lat:13.6731,lon:100.6017,type:"simulation",clickable:true},
+  {id:"DonMueang-Sim",lat:13.9105,lon:100.6060,type:"simulation",clickable:true},
+  {id:"PathumWan-Error",lat:13.7461,lon:100.5348,type:"simulation",clickable:false,error:true},
+  {id:"BangRak-Sim",lat:13.7232,lon:100.5329,type:"simulation",clickable:false},
+  {id:"Chatuchak-Sim",lat:13.8137,lon:100.5650,type:"simulation",clickable:false}
+];
+
+// Trend Chart Setup
+let trendData = {
+  labels: Array(10).fill(""),
+  datasets: [
+    {label:'Water Level (cm)',data:Array(10).fill(0),borderColor:'blue',backgroundColor:'rgba(0,0,255,0.1)'},
+    {label:'Rain (%)',data:Array(10).fill(0),borderColor:'orange',backgroundColor:'rgba(255,165,0,0.1)'},
+    {label:'Humidity (%)',data:Array(10).fill(0),borderColor:'green',backgroundColor:'rgba(0,128,0,0.1)'}
+  ]
+};
+const ctx = document.getElementById('trendChart').getContext('2d');
+const trendChart = new Chart(ctx,{type:'line',data:trendData,options:{responsive:true,plugins:{legend:{position:'bottom'}}}});
+
+function generateNodeStatus(node){
+  if(node.type==="real") return {...node,status:"WAITING",water_level:0,rain:0,humidity:0,vibration:0,time:new Date().toLocaleTimeString()};
+  else if(node.error) return {...node,status:"ERROR",water_level:0,rain:0,humidity:0,vibration:0,time:new Date().toLocaleTimeString()};
+  else {
+    const statusChance=Math.random();
+    let status;
+    if(statusChance<0.5) status="NORMAL";
+    else if(statusChance<0.75) status="WARNING";
+    else if(statusChance<0.9) status="FLOOD";
+    else status="FLASH FLOOD";
+    return {...node,status,
+            water_level:Math.floor(Math.random()*100),
+            rain:Math.floor(Math.random()*100),
+            humidity:60+Math.floor(Math.random()*40),
+            vibration:Math.random()>0.7?1:0,
+            time:new Date().toLocaleTimeString()};
+  }
+}
+
+function getColor(status){
+  switch(status){
+    case "ERROR": return "#d3d3d3"; // เทาอ่อน
+    case "FLASH FLOOD": return "red";
+    case "FLOOD": return "orange";
+    case "WARNING": return "yellow";
+    case "WAITING": return "blue";
+    default: return "green";
+  }
+}
+
+function getEmoji(status){
+  switch(status){
+    case "ERROR": return "😞";
+    case "FLASH FLOOD": return "🔴";
+    case "FLOOD": return "🌊";
+    case "WARNING": return "⚠️";
+    case "WAITING": return "⏳";
+    default: return "✅";
+  }
+}
+
+// Map
+const map=L.map('bigMap').setView([13.7563,100.5018],11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap'}).addTo(map);
+
+const markers={};
+nodes.forEach(node=>{
+  const marker=L.circleMarker([node.lat,node.lon],{radius:12,color:"green",fillColor:"green",fillOpacity:0.8}).addTo(map);
+  marker.bindPopup(`${node.id}`);
+  if(node.clickable) marker.on('click',()=>{window.location.href=`machine.html?id=${node.id}`});
+  markers[node.id]=marker;
+});
+
+// Update
+function updateNodes(){
+  nodes.forEach(node=>{
+    const data=generateNodeStatus(node);
+    const color=getColor(data.status);
+    const emoji=getEmoji(data.status);
+
+    // Map Marker
+    const marker=markers[node.id];
+    marker.setStyle({color:color,fillColor:color});
+    marker.bindPopup(`${data.id}<br>Status: ${data.status} ${emoji}`);
+
+    if(node.id===machineId){
+      // Status Card
+      const statusCard=document.getElementById("statusCard");
+      statusCard.innerText=`Status: ${data.status} ${emoji}`;
+      statusCard.style.background=color;
+
+      // Data Blocks
+      document.getElementById("waterBlock").innerHTML=
+        `<span class="emoji">💧</span>Water Level: ${data.water_level} cm
+        <span class="lang">ระดับน้ำ: ${data.water_level} / 水位: ${data.water_level}</span>`;
+
+      document.getElementById("rainBlock").innerHTML=
+        `<span class="emoji">🌧️</span>Rain: ${data.rain} %
+        <span class="lang">ฝน: ${data.rain} / 雨: ${data.rain}</span>`;
+
+      document.getElementById("humidityBlock").innerHTML=
+        `<span class="emoji">💦</span>Humidity: ${data.humidity} %
+        <span class="lang">ความชื้น: ${data.humidity} / 湿度: ${data.humidity}</span>`;
+
+      document.getElementById("vibrationBlock").innerHTML=
+        `<span class="emoji">📳</span>Vibration: ${data.vibration}
+        <span class="lang">สั่น: ${data.vibration} / 振動: ${data.vibration}</span>`;
+
+      // Trend Chart
+      trendData.labels.shift(); trendData.labels.push("");
+      trendData.datasets[0].data.shift(); trendData.datasets[0].data.push(data.water_level);
+      trendData.datasets[1].data.shift(); trendData.datasets[1].data.push(data.rain);
+      trendData.datasets[2].data.shift(); trendData.datasets[2].data.push(data.humidity);
+      trendChart.update();
+    }
+  });
+  document.getElementById("currentTime").innerText=new Date().toLocaleTimeString();
+}
+
+setInterval(updateNodes,2000);
+</script>
+</body>
+</html>

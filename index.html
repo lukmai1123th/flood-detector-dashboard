@@ -5,6 +5,9 @@
 <title>Bangkok Flood Dashboard</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 <style>
 body{margin:0;padding:0;font-family:Arial,sans-serif;background:#f0f2f5;}
 h1{text-align:center;margin:20px;color:#333;}
@@ -18,68 +21,59 @@ h1{text-align:center;margin:20px;color:#333;}
 .dataBlock span.lang{display:block;font-size:11px;color:#555;margin-top:2px;}
 .dataBlock span.emoji{font-size:18px;margin-bottom:3px;display:block;}
 .status-box{position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.7);color:white;padding:10px;border-radius:8px;font-size:14px;}
+#toastContainer{position:fixed;bottom:20px;right:10%;transform:translateX(50%);display:flex;flex-direction:column;align-items:flex-end;gap:5px;z-index:1000;}
+.toast{padding:6px 12px;border-radius:8px;color:white;font-size:13px;opacity:0;transition:all 0.5s ease;pointer-events:none;}
+.toast.show{opacity:1;transform:translateY(-10px);}
 </style>
 </head>
 <body>
-
 <div class="status-box">Time: <span id="currentTime"></span></div>
 <h1>🌊 Bangkok Flood Dashboard</h1>
-
 <div id="mainMap"></div>
 <div class="cardsContainer" id="cardsContainer"></div>
+<div id="toastContainer"></div>
 
 <script>
-// Nodes with city names
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyBXZW1k0ESxsrosQNCdYjFSSOJJuO4hwMs",
+  authDomain: "flood-detector-dashboard.firebaseapp.com",
+  databaseURL: "https://flood-detector-dashboard-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "flood-detector-dashboard",
+  storageBucket: "flood-detector-dashboard.firebasestorage.app",
+  messagingSenderId: "266532507025",
+  appId: "1:266532507025:web:019d912ca354c773621e30"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// Nodes
 const nodes=[
-  {id:"LatKrabang-Real",city:"Lat Krabang",city_th:"ลาดกระบัง",city_jp:"ラートクラバン",lat:13.7283,lon:100.7794,type:"real",clickable:true},
-  {id:"BangNa-Sim",city:"Bang Na",city_th:"บางนา",city_jp:"バーンナー",lat:13.6731,lon:100.6017,type:"simulation",clickable:true},
-  {id:"DonMueang-Sim",city:"Don Mueang",city_th:"ดอนเมือง",city_jp:"ドンムアン",lat:13.9105,lon:100.6060,type:"simulation",clickable:true},
-  {id:"PathumWan-Error",city:"Pathum Wan",city_th:"ปทุมวัน",city_jp:"パトゥムワン",lat:13.7461,lon:100.5348,type:"simulation",clickable:false,error:true},
-  {id:"BangRak-Sim",city:"Bang Rak",city_th:"บางรัก",city_jp:"バーンラック",lat:13.7232,lon:100.5329,type:"simulation",clickable:false},
-  {id:"Chatuchak-Sim",city:"Chatuchak",city_th:"จตุจักร",city_jp:"チャトゥチャック",lat:13.8137,lon:100.5650,type:"simulation",clickable:false}
+  {id:"LatKrabang",city:"Lat Krabang",city_th:"ลาดกระบัง",city_jp:"ラートクラバン",lat:13.7283,lon:100.7794,type:"real",clickable:true},
+  {id:"BangNa",city:"Bang Na",city_th:"บางนา",city_jp:"バーンナー",lat:13.6731,lon:100.6017,type:"simulation",clickable:true},
+  {id:"DonMueang",city:"Don Mueang",city_th:"ดอนเมือง",city_jp:"ドンムアン",lat:13.9105,lon:100.6060,type:"simulation",clickable:true},
+  {id:"PathumWan",city:"Pathum Wan",city_th:"ปทุมวัน",city_jp:"パトゥムワン",lat:13.7461,lon:100.5348,type:"simulation",clickable:false,error:true},
+  {id:"BangRak",city:"Bang Rak",city_th:"บางรัก",city_jp:"バーンラック",lat:13.7232,lon:100.5329,type:"simulation",clickable:true},
+  {id:"Chatuchak",city:"Chatuchak",city_th:"จตุจักร",city_jp:"チャトゥチャック",lat:13.8137,lon:100.5650,type:"simulation",clickable:true}
 ];
 
-// Status helpers
-function getColor(status){
-  switch(status){
-    case "ERROR": return "#d3d3d3";
-    case "FLASH FLOOD": return "red";
-    case "FLOOD": return "orange";
-    case "WARNING": return "yellow";
-    case "WAITING": return "blue";
-    default: return "green";
-  }
-}
-
-function getEmoji(status){
-  switch(status){
-    case "ERROR": return "😞";
-    case "FLASH FLOOD": return "🔴";
-    case "FLOOD": return "🌊";
-    case "WARNING": return "⚠️";
-    case "WAITING": return "⏳";
-    default: return "✅";
-  }
-}
-
-function generateNodeStatus(node){
-  if(node.type==="real") return {...node,status:"WAITING",water_level:0,rain:0,humidity:0,vibration:0,time:new Date().toLocaleTimeString()};
-  else if(node.error) return {...node,status:"ERROR",water_level:0,rain:0,humidity:0,vibration:0,time:new Date().toLocaleTimeString()};
-  else {
-    const statusChance=Math.random();
-    let status;
-    if(statusChance<0.5) status="NORMAL";
-    else if(statusChance<0.75) status="WARNING";
-    else if(statusChance<0.9) status="FLOOD";
-    else status="FLASH FLOOD";
-    return {...node,status,
-            water_level:Math.floor(Math.random()*100),
-            rain:Math.floor(Math.random()*100),
-            humidity:60+Math.floor(Math.random()*40),
-            vibration:Math.random()>0.7?1:0,
-            time:new Date().toLocaleTimeString()};
-  }
-}
+// Helpers
+function getColor(status){switch(status){
+  case "ERROR": return "#d3d3d3";
+  case "FLASH FLOOD": return "red";
+  case "FLOOD": return "orange";
+  case "WARNING": return "yellow";
+  case "WAITING": return "blue";
+  default: return "green";
+}}
+function getEmoji(status){switch(status){
+  case "ERROR": return "😞";
+  case "FLASH FLOOD": return "🔴";
+  case "FLOOD": return "🌊";
+  case "WARNING": return "⚠️";
+  case "WAITING": return "⏳";
+  default: return "✅";
+}}
 
 // Map
 const map=L.map('mainMap').setView([13.7563,100.5018],11);
@@ -88,7 +82,7 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&
 const markers={};
 nodes.forEach(node=>{
   const marker=L.circleMarker([node.lat,node.lon],{radius:12,color:"green",fillColor:"green",fillOpacity:0.8}).addTo(map);
-  marker.bindPopup(node.city + " / " + node.city_th + " / " + node.city_jp);
+  marker.bindPopup(`${node.city} / ${node.city_th} / ${node.city_jp}`);
   if(node.clickable) marker.on('click',()=>{window.location.href=`machine.html?id=${node.id}`});
   markers[node.id]=marker;
 });
@@ -97,10 +91,8 @@ nodes.forEach(node=>{
 const cardsContainer=document.getElementById("cardsContainer");
 nodes.forEach(node=>{
   const card=document.createElement("div");
-  card.className="card";
-  card.id=node.id;
+  card.className="card"; card.id=node.id;
   card.onclick=()=>{if(node.clickable) window.location.href=`machine.html?id=${node.id}`};
-  
   card.innerHTML=`
     <div class="cardStatus" id="${node.id}-status">Status: -</div>
     <div class="cityName">${node.city} / ${node.city_th} / ${node.city_jp}</div>
@@ -112,26 +104,65 @@ nodes.forEach(node=>{
   cardsContainer.appendChild(card);
 });
 
+// Toasts
+const toastContainer = document.getElementById("toastContainer");
+const activeToasts = {};
+
+function showToast(status,node){
+  if(!["FLOOD","FLASH FLOOD","WARNING"].includes(status)) return;
+  const id=node.id;
+  const color=getColor(status);
+  const message=`${getEmoji(status)} ${status} at ${node.city}`;
+
+  if(activeToasts[id]){
+    if((status==="FLOOD"||status==="FLASH FLOOD") && activeToasts[id].status===status) return;
+    fadeOutToast(activeToasts[id].element);
+    delete activeToasts[id];
+  }
+
+  const toast=document.createElement("div");
+  toast.className="toast";
+  toast.style.background=color;
+  toast.innerText=message;
+  toastContainer.appendChild(toast);
+  activeToasts[id]={status,element:toast};
+  setTimeout(()=>toast.classList.add("show"),50);
+
+  if(status==="WARNING"){
+    setTimeout(()=>{fadeOutToast(toast); delete activeToasts[id];},3000);
+  }
+}
+
+function fadeOutToast(toast){toast.classList.remove("show"); setTimeout(()=>toast.remove(),500);}
+
 // Update
+function updateCard(node,status,water,rain,humidity,vibration){
+  const emoji=getEmoji(status), color=getColor(status);
+  document.getElementById(`${node.id}-status`).innerText=`Status: ${status} ${emoji}`;
+  document.getElementById(`${node.id}-status`).style.background=color;
+  document.getElementById(`${node.id}-water`).innerHTML=`<span class="emoji">💧</span>Water Level: ${water}<span class="lang">ระดับน้ำ: ${water} / 水位: ${water}</span>`;
+  document.getElementById(`${node.id}-rain`).innerHTML=`<span class="emoji">🌧️</span>Rain: ${rain}<span class="lang">ฝน: ${rain} / 雨: ${rain}</span>`;
+  document.getElementById(`${node.id}-humidity`).innerHTML=`<span class="emoji">💦</span>Humidity: ${humidity}<span class="lang">ความชื้น: ${humidity} / 湿度: ${humidity}</span>`;
+  document.getElementById(`${node.id}-vibration`).innerHTML=`<span class="emoji">📳</span>Vibration: ${vibration}<span class="lang">สั่น: ${vibration} / 振動: ${vibration}</span>`;
+  const marker=markers[node.id];
+  marker.setStyle({color:color,fillColor:color});
+  marker.bindPopup(`${node.city} / ${node.city_th} / ${node.city_jp}<br>Status: ${status} ${emoji}`);
+}
+
+// รับข้อมูลทุกตัวจาก Firebase
 function updateNodes(){
   nodes.forEach(node=>{
-    const data=generateNodeStatus(node);
-    const color=getColor(data.status);
-    const emoji=getEmoji(data.status);
-
-    // Map marker
-    const marker=markers[node.id];
-    marker.setStyle({color:color,fillColor:color});
-    marker.bindPopup(`${node.city} / ${node.city_th} / ${node.city_jp}<br>Status: ${data.status} ${emoji}`);
-
-    // Card update
-    document.getElementById(`${node.id}-status`).innerText=`Status: ${data.status} ${emoji}`;
-    document.getElementById(`${node.id}-status`).style.background=color;
-
-    document.getElementById(`${node.id}-water`).innerHTML=`<span class="emoji">💧</span>Water Level: ${data.water_level}<span class="lang">ระดับน้ำ: ${data.water_level} / 水位: ${data.water_level}</span>`;
-    document.getElementById(`${node.id}-rain`).innerHTML=`<span class="emoji">🌧️</span>Rain: ${data.rain}<span class="lang">ฝน: ${data.rain} / 雨: ${data.rain}</span>`;
-    document.getElementById(`${node.id}-humidity`).innerHTML=`<span class="emoji">💦</span>Humidity: ${data.humidity}<span class="lang">ความชื้น: ${data.humidity} / 湿度: ${data.humidity}</span>`;
-    document.getElementById(`${node.id}-vibration`).innerHTML=`<span class="emoji">📳</span>Vibration: ${data.vibration}<span class="lang">สั่น: ${data.vibration} / 振動: ${data.vibration}</span>`;
+    const path = `machines/${node.id.split('-')[0]}`;
+    db.ref(path).get().then(snapshot=>{
+      const data = snapshot.val() || {};
+      const status = data.status || "WAITING";
+      const water = data.water_level || 0;
+      const rain = data.rain || 0;
+      const humidity = data.humidity || 0;
+      const vibration = data.vibration || 0;
+      updateCard(node,status,water,rain,humidity,vibration);
+      showToast(status,node);
+    }).catch(()=>updateCard(node,"ERROR",0,0,0,0));
   });
   document.getElementById("currentTime").innerText=new Date().toLocaleTimeString();
 }

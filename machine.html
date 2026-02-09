@@ -45,6 +45,14 @@ h1{text-align:center;margin:20px;color:#333;}
   background:rgba(0,0,0,0.7);color:white;
   padding:10px;border-radius:8px;font-size:14px;
 }
+.marker-label {
+  background-color: rgba(255,255,255,0.8);
+  color: #222;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 14px;
+}
 </style>
 </head>
 
@@ -95,12 +103,28 @@ firebase.initializeApp({
 });
 const db = firebase.database();
 
-/* ===== Machine ID ===== */
+// ===== Machine ID =====
 const rawId = new URLSearchParams(location.search).get("id") || "LatKrabang";
 const machineId = rawId
   .replace("-Real","")
   .replace("-Sim","")
   .replace("-Error","");
+
+// ===== ตั้งชื่อเมืองสำหรับแสดง =====
+const cityNames = {
+  LatKrabang: "Lat Krabang ลาดกระบัง ラートクラバン",
+  BangNa: "Bang Na บางนา バーンナー",
+  BangRak: "Bang Rak บางรัก バーンラック",
+  Chatuchak: "Chatuchak จตุจักร チャトゥチャック",
+  DonMueang: "Don Mueang ดอนเมือง ドンムアン",
+  PathumWan: "Pathum Wan ปทุมวัน パトゥムワン"
+};
+
+const cityDisplay = cityNames[machineId] || machineId;
+
+// เปลี่ยน title และ h1
+document.title = `${cityDisplay} - Dashboard`;
+document.getElementById("machineTitle").innerText = `${cityDisplay} Dashboard`;
 
 
 /* ===== Map ===== */
@@ -113,13 +137,17 @@ const locations = {
   PathumWan:[13.7461,100.5348]
 };
 
-const map = L.map("bigMap").setView([13.7563,100.5018],11);
+const map = L.map("bigMap").setView(locations[machineId],12);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
 
-const marker = L.circleMarker(locations[machineId],{
-  radius:14,fillOpacity:0.9
+// Marker พร้อมชื่อเมือง
+const marker = L.circleMarker(locations[machineId], {
+  radius: 14,
+  fillOpacity: 0.9
 }).addTo(map);
 
+// ใส่ Label ชื่อเมืองตรง Marker
+marker.bindTooltip(cityDisplay, {permanent: true, direction: "top", offset:[0,-10], className:"marker-label"}).openTooltip();
 /* ===== Chart ===== */
 const chart = new Chart(document.getElementById("trendChart"),{
   type:"line",

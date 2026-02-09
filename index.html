@@ -24,6 +24,16 @@ h1{text-align:center;margin:20px;color:#333;}
 #toastContainer{position:fixed;bottom:20px;right:10%;transform:translateX(50%);display:flex;flex-direction:column;align-items:flex-end;gap:5px;z-index:1000;}
 .toast{padding:6px 12px;border-radius:8px;color:white;font-size:13px;opacity:0;transition:all 0.5s ease;pointer-events:none;}
 .toast.show{opacity:1;transform:translateY(-10px);}
+.marker-label {
+  background: rgba(255,255,255,0.8);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #222;
+  font-weight: bold;
+  pointer-events: none;
+}
+
 </style>
 </head>
 <body>
@@ -52,7 +62,7 @@ const nodes=[
   {id:"LatKrabang",city:"Lat Krabang",city_th:"ลาดกระบัง",city_jp:"ラートクラバン",lat:13.7283,lon:100.7794,type:"real",clickable:true},
   {id:"BangNa",city:"Bang Na",city_th:"บางนา",city_jp:"バーンナー",lat:13.6731,lon:100.6017,type:"simulation",clickable:true},
   {id:"DonMueang",city:"Don Mueang",city_th:"ดอนเมือง",city_jp:"ドンムアン",lat:13.9105,lon:100.6060,type:"simulation",clickable:true},
-  {id:"PathumWan",city:"Pathum Wan",city_th:"ปทุมวัน",city_jp:"パトゥムワン",lat:13.7461,lon:100.5348,type:"simulation",clickable:false,error:true},
+  {id:"PathumWan",city:"Pathum Wan",city_th:"ปทุมวัน",city_jp:"パトゥムワン",lat:13.7461,lon:100.5348,type:"simulation",clickable:true},
   {id:"BangRak",city:"Bang Rak",city_th:"บางรัก",city_jp:"バーンラック",lat:13.7232,lon:100.5329,type:"simulation",clickable:true},
   {id:"Chatuchak",city:"Chatuchak",city_th:"จตุจักร",city_jp:"チャトゥチャック",lat:13.8137,lon:100.5650,type:"simulation",clickable:true}
 ];
@@ -81,11 +91,28 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&
 
 const markers={};
 nodes.forEach(node=>{
-  const marker=L.circleMarker([node.lat,node.lon],{radius:12,color:"green",fillColor:"green",fillOpacity:0.8}).addTo(map);
-  marker.bindPopup(`${node.city} / ${node.city_th} / ${node.city_jp}`);
-  if(node.clickable) marker.on('click',()=>{window.location.href=`machine.html?id=${node.id}`});
+  // สร้าง CircleMarker
+  const marker=L.circleMarker([node.lat,node.lon],{
+    radius:12,
+    color:"green",
+    fillColor:"green",
+    fillOpacity:0.8
+  }).addTo(map);
+
+  // แสดงชื่อเมืองตลอดเวลาแบบ tooltip
+  marker.bindTooltip(
+    `${node.city} / ${node.city_th} / ${node.city_jp}`,
+    {permanent:true, direction:'top', offset:[0,-15], className:'marker-label'}
+  );
+
+  // คลิกยังคงไปหน้า machine.html หาก clickable
+  if(node.clickable){
+    marker.on('click',()=>{window.location.href=`machine.html?id=${node.id}`});
+  }
+
   markers[node.id]=marker;
 });
+
 
 // Cards
 const cardsContainer=document.getElementById("cardsContainer");
@@ -106,34 +133,46 @@ nodes.forEach(node=>{
 
 // Toasts
 const toastContainer = document.getElementById("toastContainer");
-const activeToasts = {};
 
-function showToast(status,node){
-  if(!["FLOOD","FLASH FLOOD","WARNING"].includes(status)) return;
-  const id=node.id;
-  const color=getColor(status);
-  const message=`${getEmoji(status)} ${status} at ${node.city}`;
+// เก็บสถานะล่าสุด + เวลา
+const lastToast = {}; // { LatKrabang: {status:"WARNING", time: 1671234567890} }
 
-  if(activeToasts[id]){
-    if((status==="FLOOD"||status==="FLASH FLOOD") && activeToasts[id].status===status) return;
-    fadeOutToast(activeToasts[id].element);
-    delete activeToasts[id];
+function showToast(status, node){
+  if(!["WARNING","FLOOD","FLASH FLOOD"].includes(status)) return;
+
+  const id = node.id;
+  const color = getColor(status);
+  const message = `${getEmoji(status)} ${status} at ${node.city}`;
+
+  const now = Date.now();
+
+  // ถ้ามี toast เดิมอยู่และยังเป็น status เดิมและไม่เกิน 10 วินาที ให้ไม่โชว์
+  if(lastToast[id] && lastToast[id].status === status && (now - lastToast[id].time < 10000)){
+    return; // ยังไม่ถึง 10 วินาที ไม่โชว์ซ้ำ
   }
 
-  const toast=document.createElement("div");
-  toast.className="toast";
-  toast.style.background=color;
-  toast.innerText=message;
+  lastToast[id] = {status, time: now};
+
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.style.background = color;
+  toast.innerText = message;
   toastContainer.appendChild(toast);
-  activeToasts[id]={status,element:toast};
-  setTimeout(()=>toast.classList.add("show"),50);
 
-  if(status==="WARNING"){
-    setTimeout(()=>{fadeOutToast(toast); delete activeToasts[id];},3000);
-  }
+  // โชว์
+  setTimeout(() => toast.classList.add("show"), 50);
+
+  // เวลาหมด 3 วินาที Toast หาย
+  setTimeout(() => {
+    fadeOutToast(toast);
+  }, 3000);
 }
 
-function fadeOutToast(toast){toast.classList.remove("show"); setTimeout(()=>toast.remove(),500);}
+function fadeOutToast(toast){
+  toast.classList.remove("show");
+  setTimeout(() => toast.remove(), 500);
+}
+
 
 // Update
 function updateCard(node,status,water,rain,humidity,vibration){
